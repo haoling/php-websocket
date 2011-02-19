@@ -23,6 +23,12 @@ class Server extends Socket
     public function run()
     {
         while (true) {
+             $this->loop();
+        }
+    }
+
+    public function loop()
+    {
             $changed_sockets = $this->allsockets;
             @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, NULL);
 
@@ -50,7 +56,6 @@ class Server extends Socket
                     }
                 }
             }
-        }
     }
 
     public function getApplication($key)
