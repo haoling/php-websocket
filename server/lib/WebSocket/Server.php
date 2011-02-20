@@ -30,7 +30,7 @@ class Server extends Socket
     public function loop()
     {
             $changed_sockets = $this->allsockets;
-            @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, NULL);
+            @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
 
             foreach ($changed_sockets as $socket) {
                 if ($socket == $this->master) {
