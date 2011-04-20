@@ -41,7 +41,7 @@ class Server extends Socket
                 } else {
                     $client = $this->clients[$socket];
                     $bytes = @socket_recv($socket, $data, 4096, 0);
-                    if ($bytes === 0) {
+                    if (!$bytes) {
                         $client->onDisconnect();
                         unset($this->clients[$socket]);
                         $index = array_search($socket, $this->allsockets);
