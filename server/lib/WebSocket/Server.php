@@ -32,6 +32,9 @@ class Server extends Socket
             $changed_sockets = $this->allsockets;
             @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
 
+            foreach ($this->applications as $application) {
+                $application->onTick();
+            }
             foreach ($changed_sockets as $socket) {
                 if ($socket == $this->master) {
                     if (($ressource = socket_accept($this->master)) < 0) {
@@ -45,7 +48,7 @@ class Server extends Socket
                 } else {
                     $client = $this->clients[$socket];
                     $bytes = @socket_recv($socket, $data, 4096, 0);
-                    if ($bytes === 0) {
+                    if (!$bytes) {
                         $client->onDisconnect();
                         unset($this->clients[$socket]);
                         $index = array_search($socket, $this->allsockets);
