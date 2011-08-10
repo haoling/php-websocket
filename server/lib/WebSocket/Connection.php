@@ -65,7 +65,18 @@ class Connection
         }
         
         $status = '101 Web Socket Protocol Handshake';
-        if (array_key_exists('Sec-WebSocket-Key1', $headers)) {
+            //10
+        if (array_key_exists('Sec-WebSocket-Key', $headers)) {
+             $safes = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+             $hash = $headers['Sec-WebSocket-Key'].$safes;
+              $this->log("THIS IS HASH '$hash'");
+              $hash = base64_encode(sha1($hash, true));
+
+            $def_header = array(
+                'Sec-WebSocket-Accept' => $hash,
+            );
+
+        } else if (array_key_exists('Sec-WebSocket-Key1', $headers)) {
             // draft-76
             $def_header = array(
                 'Sec-WebSocket-Origin' => $origin,
@@ -102,28 +113,61 @@ class Connection
     
     public function onData($data)
     {
+      $this->log("THIS IS ONDATA");
+
         if ($this->handshaked) {
+
             $this->handle($data);
         } else {
             $this->handshake($data);
         }
     }
     
-    private function handle($data)
-    {
-        $chunks = explode(chr(255), $data);
+   private static function parseFrame($data) {
+      $data = array_values(unpack("C*", $data));
+      $i = $data[0]; $fin = $i & 0x80; $opcode = $i&0x0F;
+      if(!$fin) throw new Exception("unsupported fin");
+      if($opcode != 0x1) throw new Exception("unsupported opcode");
+      $i = $data[1]; $masked = $i&0x80; $len = $i&0x7F;
+      if(!$masked) throw new Exception("unsupported should be masked");
+      if($len>=126) throw new Exception("unsupported len");
+      $mask = array_slice($data, 2, 4);
+      $str = "";
+      for($i=0;$i<$len;$i++)
+        $str .= chr($data[6+$i] ^ $mask[$i%4]);
+      return array($str);
+  }
 
-        for ($i = 0; $i < count($chunks) - 1; $i++) {
-            $chunk = $chunks[$i];
-            if (substr($chunk, 0, 1) != chr(0)) {
-                $this->log('Data incorrectly framed. Dropping connection');
-                socket_close($this->socket);
-                return false;
-            }
-            $this->application->onData(substr($chunk, 1), $this);
+  private static function parseClassic($data){
+        $out = array();
+        foreach(explode(chr(255), $data) as $chunk) {
+          if($chunk == "") break;
+          if($chunk[0] != chr(0)) return false;
+          $out[] = substr($chunk, 1);
         }
 
-        return true;
+        return $out;
+  }
+
+    private function handle($data)
+    {
+      $this->log("Data in is ".join(',', unpack("C*", $data)));
+
+      if($data[0] != chr(0))
+        $chunks = $this->parseFrame($data);
+      else 
+        $chunks = $this->parseClassic($data);
+      $this->log(print_r($chunks,1));
+      if($chunks === false) {
+          $this->log('Data incorrectly framed. Dropping connection');
+          socket_close($this->socket);
+          return false;
+      }
+
+      foreach($chunks as $chunk)
+        $this->application->onData($chunk, $this);
+
+      return true;
     }
     
     private function serveFlashPolicy()
@@ -139,6 +183,11 @@ class Connection
     
     public function send($data)
     {
+      $this->log("Force answer");
+      $data = pack("C*", 129,strlen($data)).$data;
+      socket_write($this->socket,$data);
+      return;
+      
         if (! @socket_write($this->socket, chr(0) . $data . chr(255), strlen($data) + 2)) {
             @socket_close($this->socket);
             $this->socket = false;
