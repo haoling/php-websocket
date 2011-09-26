@@ -23,8 +23,15 @@ class Server extends Socket
     public function run()
     {
         while (true) {
+             $this->loop();
+        }
+    }
+
+    public function loop()
+    {
             $changed_sockets = $this->allsockets;
-            @socket_select($changed_sockets, $write = NULL, $except = NULL, 1);
+            @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
+
             foreach ($this->applications as $application) {
                 $application->onTick();
             }
@@ -41,7 +48,7 @@ class Server extends Socket
                 } else {
                     $client = $this->clients[$socket];
                     $bytes = @socket_recv($socket, $data, 4096, 0);
-                    if ($bytes === 0) {
+                    if (!$bytes) {
                         $client->onDisconnect();
                         unset($this->clients[$socket]);
                         $index = array_search($socket, $this->allsockets);
@@ -52,7 +59,6 @@ class Server extends Socket
                     }
                 }
             }
-        }
     }
 
     public function getApplication($key)
