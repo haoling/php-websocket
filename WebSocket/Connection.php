@@ -6,6 +6,8 @@ namespace WebSocket;
  * WebSocket Connection class
  *
  * @author Nico Kaiser <nico@kaiser.me>
+ * @author Simon Samtleben <web@lemmingzshadow.net> (Added hybi10 support)
+ * @author Walter Stanish <stani.sh/walter>
  */
 class Connection
 {
@@ -17,33 +19,46 @@ class Connection
 
     private $application = null;
     
+    private $draft = '';
+
     public function __construct($server, $socket)
     {
         $this->server = $server;
         $this->socket = $socket;
-
         $this->log('Connected');
     }
     
+    # post-connection server handshake function
     private function handshake($data)
     {
         $this->log('Performing handshake');
-        
         $lines = preg_split("/\r\n/", $data);
-        if (count($lines)  && preg_match('/<policy-file-request.*>/', $lines[0])) {
+
+        # if the first line contains a flash policy file request
+        if (count($lines) && preg_match('/<policy-file-request.*>/', $lines[0])) {
             $this->log('Flash policy file request');
+            # deliver one
             $this->serveFlashPolicy();
             return false;
         }
 
+        # otherwise... require HTTP/1.1 GET request, extract path
         if (! preg_match('/\AGET (\S+) HTTP\/1.1\z/', $lines[0], $matches)) {
             $this->log('Invalid request: ' . $lines[0]);
             socket_close($this->socket);
             return false;
         }
-        
         $path = $matches[1];
 
+        # validate application from supplied path
+        $this->application = $this->server->getApplication(substr($path, 1)); // e.g. '/echo'
+        if (! $this->application) {
+            $this->log('Invalid application: ' . $path);
+            socket_close($this->socket);
+            return false;
+        }
+
+        # extract headers
         foreach ($lines as $line) {
             $line = chop($line);
             if (preg_match('/\A(\S+): (.*)\z/', $line, $matches)) {
@@ -51,21 +66,44 @@ class Connection
             }
         }
 
+        /**
+         * Insert by Simon Samtleben <web@lemmingzshadow.net>
+         * Support for handshake draft:
+         * draft-ietf-hybi-thewebsocketprotocol-10
+         */
+        if(isset($headers['Sec-WebSocket-Version']) &&
+$headers['Sec-WebSocket-Version'] >= 6)
+        {
+                $this->draft = 10;
+
+                $secKey = $headers['Sec-WebSocket-Key'];
+                $secAccept = base64_encode(pack('H*', sha1($secKey
+. '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
+
+                $response = "HTTP/1.1 101 Switching Protocols\r\n";
+                $response.= "Upgrade: websocket\r\n";
+                $response.= "Connection: Upgrade\r\n";
+                $response.= "Sec-WebSocket-Accept: " . $secAccept .
+"\r\n";
+                $response.= "Sec-WebSocket-Protocol: " .
+substr($path, 1) . "\r\n\r\n";
+
+                socket_write($this->socket, $response,
+strlen($response));
+                $this->handshaked = true;
+                $this->log('Handshake sent');
+                $this->application->onConnect($this);
+
+                return true;
+        }
+
+        # handshake draft 75 & 76
         $key3 = '';
         preg_match("#\r\n(.*?)\$#", $data, $match) && $key3 = $match[1];
-
         $origin = $headers['Origin'];
         $host = $headers['Host'];
 
-        $this->application = $this->server->getApplication(substr($path, 1)); // e.g. '/echo'
-        if (! $this->application) {
-            $this->log('Invalid application: ' . $path);
-            socket_close($this->socket);
-            return false;
-        }
-        
         $status = '101 Web Socket Protocol Handshake';
-            //10
         if (array_key_exists('Sec-WebSocket-Key', $headers)) {
              $safes = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
              $hash = $headers['Sec-WebSocket-Key'].$safes;
@@ -78,6 +116,7 @@ class Connection
 
         } else if (array_key_exists('Sec-WebSocket-Key1', $headers)) {
             // draft-76
+            $this->draft = 76;
             $def_header = array(
                 'Sec-WebSocket-Origin' => $origin,
                 'Sec-WebSocket-Location' => "ws://{$host}{$path}"
@@ -85,6 +124,7 @@ class Connection
             $digest = $this->securityDigest($headers['Sec-WebSocket-Key1'], $headers['Sec-WebSocket-Key2'], $key3);
         } else {
             // draft-75
+            $this->draft = 75;
             $def_header = array(
                 'WebSocket-Origin' => $origin,
                 'WebSocket-Location' => "ws://{$host}{$path}"  
@@ -114,27 +154,60 @@ class Connection
     public function onData($data)
     {
       $this->log("THIS IS ONDATA");
-
         if ($this->handshaked) {
-
             $this->handle($data);
         } else {
             $this->handshake($data);
         }
     }
-    
-   private static function parseFrame($data) {
+ 
+  # No documentation - wuh?
+  #
+  #  - What version was this written against?
+  #  - What are the capabilities? It seems that...
+  #     - unmasked data is not supported
+  #     - multi-frame messages are not supported
+  #       (initial frame MUST include FIN flag)
+  #     - lengths over 126 are not supported
+  #  - It seems to be a more limited version of 
+  #    Simon Samtleben's hybi10Decode function,
+  #    which also lacks documentation
+  #
+  # Comments below are an attempt to make sense of this
+  # situation...
+  private static function parseFrame($data) {
+      # unpack data
       $data = array_values(unpack("C*", $data));
-      $i = $data[0]; $fin = $i & 0x80; $opcode = $i&0x0F;
+      # assign the first byte to $i
+      $i = $data[0];
+      # extract the FIN bit (last frame in message indicator)
+      $fin = $i & 0x80;
+      # extract opcodes
+      $opcode = $i&0x0F;
+      # whinge if single-frame message limitation is exceeded
       if(!$fin) throw new Exception("unsupported fin");
+      # abort on unknown opcodes (required by the standard)
       if($opcode != 0x1) throw new Exception("unsupported opcode");
-      $i = $data[1]; $masked = $i&0x80; $len = $i&0x7F;
+      # assign the second byte to $i
+      $i = $data[1];
+      # the first bit of the byte is the masking indicator bit
+      $masked = $i&0x80;
+      # the subsequent 7 bits of the byte are the payload length
+      $len = $i&0x7F;
+      # whinge if masked indicator is unset (server->client
+      # frames may have this unset, client->server frames must
+      # have this set, as of draft-15, 2011-09-17)
       if(!$masked) throw new Exception("unsupported should be masked");
+      # whinge if payload length exceeds 126. this is a bug,
+      # as a value of 127 should enable 64-bit lengths
       if($len>=126) throw new Exception("unsupported len");
+      # get 32-bit mask value from the four subsequent bytes
       $mask = array_slice($data, 2, 4);
       $str = "";
+      # apply the mask to the message frame
       for($i=0;$i<$len;$i++)
         $str .= chr($data[6+$i] ^ $mask[$i%4]);
+      # return the unmasked frame value
       return array($str);
   }
 
@@ -149,6 +222,9 @@ class Connection
         return $out;
   }
 
+    # FIXTHIS: should be modified to use the
+    #          new decode function by Simon Samtleben
+    #          <web@lemmingzshadow.net>
     private function handle($data)
     {
       $this->log("Data in is ".join(',', unpack("C*", $data)));
@@ -169,7 +245,103 @@ class Connection
 
       return true;
     }
+
+    # decoder function
+    #  Simon Samtleben <web@lemmingzshadow.net>
+    private function hybi10Decode($data)
+    {
+     $bytes = $data;
+     $dataLength = '';
+     $mask = '';
+     $coded_data = '';
+     $decodedData = '';
+     $secondByte = sprintf('%08b', ord($bytes[1]));
+     $masked = ($secondByte[0] == '1') ? true : false;
+     $dataLength = ($masked === true) ? ord($bytes[1]) & 127 : ord($bytes[1]);
+
+     # masked
+     if($masked === true)
+     {
+      if($dataLength === 126)
+      {
+       $mask = substr($bytes, 4, 4);
+       $coded_data = substr($bytes, 8);
+      }
+      elseif($dataLength === 127)
+      {
+       $mask = substr($bytes, 10, 4);
+       $coded_data = substr($bytes, 14);
+      }
+      else
+      {
+       $mask = substr($bytes, 2, 4);         
+       $coded_data = substr($bytes, 6);      
+      }      
+      for($i = 0; $i < strlen($coded_data); $i++)
+      {      
+       $decodedData .= $coded_data[$i] ^ $mask[$i
+% 4];
+      }
+     }
+     # not masked
+     else
+     {
+      if($dataLength === 126)
+      {      
+       $decodedData = substr($bytes, 4);
+      }
+      elseif($dataLength === 127)
+      {      
+       $decodedData = substr($bytes, 10);
+      }
+      else
+      {
+       $decodedData = substr($bytes, 2);     
+      }      
+     }      
+     return $decodedData;
+    }
+
+    # encoder function 
+    #  Simon Samtleben <web@lemmingzshadow.net>
+    private function hybi10Encode($data)
+    {
+            $frame = Array();
+            $mask = array(rand(0, 255), rand(0, 255), rand(0, 255),
+rand(0, 255));
+            $encodedData = '';
+            $frame[0] = 0x81;
+            $dataLength = strlen($data);
+
+
+            if($dataLength <= 125)
+            { 
+                    $frame[1] = $dataLength + 128;
+            }
+            else
+            {
+                    $frame[1] = 254;
+                    $frame[2] = $dataLength >> 8;
+                    $frame[3] = $dataLength & 0xFF;
+            }      
+            $frame = array_merge($frame, $mask);
+            for($i = 0; $i < strlen($data); $i++)
+            { 
+                    $frame[] = ord($data[$i]) ^ $mask[$i % 4];
+            }
+
+            for($i = 0; $i < sizeof($frame); $i++)
+            {
+                    $encodedData .= chr($frame[$i]);
+            }
+
+            return $encodedData;
+    }
     
+    # strictly speaking, this is not part of the protocol
+    # and should therefore be carved out and lumped on its
+    # own in a separate file (though it may remain within
+    # the library's codebase)
     private function serveFlashPolicy()
     {
         $policy = '<?xml version="1.0"?>' . "\n";
@@ -181,29 +353,52 @@ class Connection
         socket_close($this->socket);
     }
     
+    # pretty iffy. the good stuff (draft specific code) is
+    # from Simon Samtleben <web@lemmingzshadow.net>
     public function send($data)
     {
+      /*
+      # what is the explanation for this code?
       $this->log("Force answer");
       $data = pack("C*", 129,strlen($data)).$data;
       socket_write($this->socket,$data);
       return;
+      */
       
-        if (! @socket_write($this->socket, chr(0) . $data . chr(255), strlen($data) + 2)) {
-            @socket_close($this->socket);
-            $this->socket = false;
+      if($this->draft == 75 || $this->draft == 76)
+      {
+       if (! @socket_write($this->socket, chr(0) . $data .  chr(255), strlen($data) + 2))
+       {
+        @socket_close($this->socket);
+        $this->socket = false;
+       }
+      }
+
+      if($this->draft == 10)
+      {
+       $encodedData = $this->hybi10Encode($data);
+       if(!@socket_write($this->socket, $encodedData, strlen($encodedData)))
+        {
+         @socket_close($this->socket);
+         $this->socket = false;
         }
+       }
     }
     
+    # disconnection handler
     public function onDisconnect()
     {
         $this->log('Disconnected', 'info');
-        
+
+        # in the case of a server, call the application
+        # disconnection handler if defined
         if ($this->application) {
             $this->application->onDisconnect($this);
         }
         socket_close($this->socket);
     }
 
+    # create an md5 digest of three keys
     private function securityDigest($key1, $key2, $key3)
     {
         return md5(
@@ -218,11 +413,10 @@ class Connection
      */
     private function keyToBytes($key)
     {
-        return preg_match_all('#[0-9]#', $key, $number) && preg_match_all('# #', $key, $space) ?
-            implode('', $number[0]) / count($space[0]) :
-            '';
+        return preg_match_all('#[0-9]#', $key, $number) && preg_match_all('# #', $key, $space) ? implode('', $number[0]) / count($space[0]) : '';
     }
 
+    # basic logging function
     public function log($message, $type = 'info')
     {
         socket_getpeername($this->socket, $addr, $port);
