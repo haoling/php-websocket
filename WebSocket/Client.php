@@ -20,6 +20,10 @@ class WebSocketClient
 
 	private $_Socket = null;
 	private $_debugging = 0;
+
+	# frame decode-related buffers
+	private $_partial_message = '';		# partial message from previous frame
+	private $_last_opcode_type = '';	# previous opcode for fragments
 	
 	public function __construct($host, $port, $path = '/')
 	{
@@ -54,7 +58,7 @@ class WebSocketClient
 	}
 
 	# hex dump helper function
-	private function hex_dump($data, $newline="\n") {
+	public function _hex_dump($data, $newline="\n") {
 	  $output = '';
 	  static $from = '';
 	  static $to = '';
@@ -84,7 +88,24 @@ class WebSocketClient
 	  return $output;
 	}
 	
-        # get data from the socket
+        # Get data from the socket.
+        #
+        #  Under the original design, this function was
+        #  to return immediately the results of a single
+        #  socket read / frame decode. However, because
+        #  of the requirements for a buffer (due to 
+        #  multiframe messages / message continuation),
+        #  the function is no longer assured to return
+        #  data (as a single frame may not include an
+        #  entire message).
+        #
+        # Returns:
+        #  Zero or more messages in an array structure
+        #  in case of successful decode (the frame
+	#  read may have been a control frame - ie:
+	#  no messages per se - or a fragmented message
+	#  that remains incomplete), or throws an
+        #  exception in case of failure.
 	public function getData()
 	{
 	 if(!($wsdata = fread($this->_Socket, 2000))) {
@@ -92,10 +113,12 @@ class WebSocketClient
 	 }
          switch($this->draft) {
           case 'hybi00':
+	   # trim the start and end of message characters
            return trim($wsdata,"\x00\xff");
           case 'hybi10':
           case 'hybi16':
-           return $this->_hybi10DecodeData($wsdata);
+           $message_portions = $this->_hybi10DecodeData($wsdata);
+	   return $message_portions;
          }
 	}
 
@@ -287,10 +310,13 @@ class WebSocketClient
         #      |                     Payload Data continued ...                |
         #      +---------------------------------------------------------------+
 	#
-	# NOTE: This implementation is partial and does not conform to the
-	#       specification. Specifically, multi-frame messages,
-	#       reserved flag behaviours (extensions), and control frames
-	#       are not supported.
+	# BUGS: This implementation is partial and does not conform to the
+	#       specification. Specifically, some control frames are not
+	#       supported.
+	#       The decode function should also include an expectation
+        #       flag that defines expected masking behaviour (ie: client to
+	#       server packet being decoded on the server, or server to 
+	#       client packet being decoded on the client)
 	private function _hybi10DecodeData($raw_frame) {
 
 	 $this->debug("_hybi10DecodeData():
@@ -300,7 +326,7 @@ $raw_frame
 -------------------------
  - hex dump:
 -------------------------
-" . $this->hex_dump($raw_frame) . "
+" . $this->_hex_dump($raw_frame) . "
 -------------------------\n");
 
 	 # For simplicity of implementation, we ignore byte one.
@@ -319,26 +345,36 @@ $raw_frame
          $opcode = substr($first_byte,4);
 	 $this->debug(" - First byte ($first_byte) in binary: " .  sprintf('%08b',ord($raw_frame[0])) . "\n");
 	 $this->debug("    - FIN    = $flag_fin\n");
-	 if(!$flag_fin) {
-	  $this->debug("WARNING: FIN flag is not set - no support for multiframe messages in this implementation.\n");
-	 }
          $this->debug("    - RSV1   = $flag_rsv1\n");
 	 $this->debug("    - RSV2   = $flag_rsv2\n");
          $this->debug("    - RSV3   = $flag_rsv3\n");
 	 if($flag_rsv1 || $flag_rsv2 || $flag_rsv3) {
-	  $this->debug("WARNING: Unknown reserved flag set. According to the specification, we should drop the connection.\n");
+	  $this->debug("ERROR: Unknown RSV<x> flag set!\n");
+	  # disabled for now
+          #$this->_disconnect();
+          #return false;
 	 }
 
 	 # Determine opcode type
 	 if($opcode == '0000') {
 	  $opcode_type = 'Continuation';
-	  $this->debug("WARNING: Multiframe messages are not supported by this implementation.\n");
+	  if($this->_last_opcode_type == '') {
+	   $this->debug("WARNING: Continuation frame received without context!\n");
+	   # disabled for now
+	   #$this->_disconnect;
+	   #return false;
+	   # temporary workaround: pretend we had a text frame earlier
+	   $this->_last_opcode_type = 'Text';
+	  }
 	 }
 	 elseif($opcode == '0001') {
 	  $opcode_type = 'Text';
 	 }
 	 elseif($opcode = '0002') {
 	  $opcode_type = 'Binary';
+          # Fix for strange mtgox.com behavior (fragmented text message
+          # subsequent frames marked as Binary, RSV1 && RSV2)
+          if($flag_rsv1 == 1 && $flag_rsv2 == 1 && flag_rsv3 == 0) { $opcode_type = 'Text'; }
 	 }
 	 elseif($opcode == '1000') {
 	  $opcode_type = 'Connection close';
@@ -415,16 +451,89 @@ $raw_frame
 	  # Really extended payload (7+64 bits or +8 bytes)
 	  elseif($payload_length === 127) { $payload_offset = 10; }
 
-	  # Return unmasked payload
-	  $payload = substr($raw_frame, $payload_offset-1, strlen($raw_frame)-$payload_offset);
+	  # Read the payload
+	  $payload = substr($raw_frame, $payload_offset-2, strlen($raw_frame)-$payload_offset+2);
 	 }
 
-	 $this->debug("Observed payload length: " . strlen($payload) .  "\n");
+         # Verify payload length
 	 if($payload_length != strlen($payload)) {
 	  $this->debug("WARNING: Observed payload length (".strlen($payload)." bytes) differs from claimed payload length ($payload_length bytes).\n");
          }
 
-	 return $payload;
+         # If the frame is of type 'text', or this is a continuation
+	 # of a fragmented text frame, then potentially split the
+         # content in to separate messages and/or message portions
+         if($opcode_type == 'Text' || ($opcode_type == 'Continuation' && $this->_last_opcode_type == 'Text')) {
+
+	  # Potentially split the content
+          $message_portions = explode(pack('H*','FF00'),$payload);
+
+	  # If the first message (portion) begins with an 00 (null) byte, remove it.
+	  if(substr($message_portions[0],0,1) == 0x00) {
+	   $message_portions[0] = substr($message_portions[0],1);
+	  }
+
+	  # If we have an outstanding partial message, then we can
+	  # prepend the outstanding partial message to the first 
+	  # message of the current frame.
+	  if($this->_partial_message != '') {
+	   $this->debug("Gluing remembered partial message to beginning of initial message portion.\n");
+	   # prepend
+	   $message_portions[0] = $this->_partial_message .  $message_portions[0];
+	   $this->debug($this->_hex_dump($message_portions[0]));
+	   # unset
+	   $this->_partial_message = '';
+	  }
+
+	  # If the final message (portion) ends with an FF byte, we can
+          # remove it since the message is complete.
+	  $final = count($message_portions) - 1;
+	  if(ord(substr($message_portions[$final],-1)) == 255) {
+	   $this->debug(" - Text frame summary: No partial messages in frame (complete frame).\n");
+	   $message_portions[$final] = substr($message_portions[$final],0,strlen($message_portions[$final])-1);
+	  }
+	  # The final message is incomplete.
+	  else {
+	   $this->debug(" - Saving partial final message-portion for subsqeuent frame.\n");
+	   $this->debug($this->_hex_dump($message_portions[$final]) .  "\n");
+	   # remember
+	   $this->_partial_message = $message_portions[$final];
+	   $this->debug($this->_hex_dump($this->partial_message));
+	   # unset
+	   unset($message_portions[$final]);
+	  }
+	  # Overkill for debugging!
+	  #$i=0;
+	  #foreach($message_portions as $message_portion) {
+	  # $this->debug("==== message portion #{$i} ====\n");
+	  # $this->debug($this->_hex_dump($message_portion) . "\n");
+	  # $this->debug("===============================\n");
+	  # $i++;
+	  #}
+         }
+	 # otherwise, if the frame is of type 'Binary', set the 
+	 # first message portion to the entire payload
+	 elseif($opcode_type == 'Binary') {
+	  $message_portions = array($payload);
+	 }
+	 # otherwise, we return an empty array since decoding
+	 # was successful but no message or message-portion was
+	 # present within the frame (eg: control frames, etc.)
+	 else {
+	  $message_portions = array();
+	 }
+
+	 # debug
+	 $this->debug(print_r($message_portions,1));
+
+	 # Except in the case of continued fragements, 
+	 # remember the opcode type for next time (fragements, etc.)
+	 if($opcode_type != 'Continuation') {
+	  $this->_last_opcode_type = $opcode_type;
+         }
+
+         # Return the array of message portions
+	 return $message_portions;
 
 	}
 }
