@@ -75,8 +75,18 @@ class Server extends Socket
         $this->applications[$key] = $application;
     }
     
+	public function removeClient($resource)
+	{
+		$client = $this->clients[$resource];
+		unset($this->clients[$resource]);
+		$index = array_search($resource, $this->allsockets);
+		unset($this->allsockets[$index]);
+		unset($client);
+	}
+
     public function log($message, $type = 'info')
     {
         echo date('Y-m-d H:i:s') . ' [' . ($type ? $type : 'error') . '] ' . $message . PHP_EOL;
     }
+
 }
