@@ -4,11 +4,6 @@ error_reporting(E_ALL ^ E_WARNING ^ E_STRICT ^ E_NOTICE);
 
 /**
  * Very basic websocket client.
- *
- * Supporting handshake from drafts:
- *	draft-hixie-thewebsocketprotocol-76
- *	draft-ietf-hybi-thewebsocketprotocol-00
- *      draft-ietf-hybi-thewebsocketprotocol-10
  * 
  * @author Simon Samtleben <web@lemmingzshadow.net>
  * @author Walter Stanish <stani.sh/walter>
@@ -16,8 +11,6 @@ error_reporting(E_ALL ^ E_WARNING ^ E_STRICT ^ E_NOTICE);
 
 class WebSocketClient
 {
-	public $draft = 'hybi16';
-
 	private $_Socket = null;
 	private $_debugging = 0;
 
@@ -111,14 +104,7 @@ class WebSocketClient
 	 if(!($wsdata = fread($this->_Socket, 2000))) {
           throw new exception('Socket read failed.');
 	 }
-         switch($this->draft) {
-          case 'hybi00':
-	   # trim the start and end of message characters
-           return trim($wsdata,"\x00\xff");
-          case 'hybi10':
-          case 'hybi16':
-           $message_portions = $this->_hybi10DecodeData($wsdata);
-	   return $message_portions;
+         return $this->_decodeFrame($wsdata);
          }
 	}
 
@@ -138,7 +124,7 @@ class WebSocketClient
 			case 'hybi16';
 				fwrite($this->_Socket, $this->_hybi10EncodeData($data)) or die('Error:' . $errno . ':' . $errstr); 
 				$wsData = fread($this->_Socket, 2000);				
-				$retData = $this->_hybi10DecodeData($wsData);
+				$retData = $this->_decodeFrame($wsData);
 			break;
 		}
 		
@@ -317,9 +303,9 @@ class WebSocketClient
         #       flag that defines expected masking behaviour (ie: client to
 	#       server packet being decoded on the server, or server to 
 	#       client packet being decoded on the client)
-	private function _hybi10DecodeData($raw_frame) {
+	private function _decodeFrame($raw_frame) {
 
-	 $this->debug("_hybi10DecodeData():
+	 $this->debug("_decodeFrame():
  - raw frame:
 -------------------------
 $raw_frame
