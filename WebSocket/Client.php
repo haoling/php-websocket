@@ -111,7 +111,7 @@ class WebSocketClient
 	# send data to the socket
 	public function sendData($data)
 	{
-		fwrite($this->_Socket, $this->_hybi10EncodeData($data)) or die('Error:' . $errno . ':' . $errstr); 
+		fwrite($this->_Socket, $this->_encodeFrame($data)) or die('Error:' . $errno . ':' . $errstr); 
 		$wsData = fread($this->_Socket, 2000);				
 		return $this->_decodeFrame($wsData);
 	}
@@ -188,37 +188,93 @@ class WebSocketClient
 		return $randomString;
 	}
 	
-	private function _hybi10EncodeData($data)
-	{
-		$frame = Array();
-		$mask = array(rand(0, 255), rand(0, 255), rand(0, 255), rand(0, 255));
-		$encodedData = '';
-		$frame[0] = 0x81;
-		$payloadLength = strlen($data);
+	# Encode a frame
+        private function _encodeFrame($payload, $type = 'text', $masked = true)
+        {
+                $frameHead = array();
+                $frame = '';
+                $payloadLength = strlen($payload);
 
-		if($payloadLength <= 125)
-		{		
-			$frame[1] = $payloadLength + 128;		
-		}
-		else
-		{
-			$frame[1] = 254;  
-			$frame[2] = $payloadLength >> 8;
-			$frame[3] = $payloadLength & 0xFF; 
-		}	
-		$frame = array_merge($frame, $mask);	
-		for($i = 0; $i < strlen($data); $i++)
-		{		
-			$frame[] = ord($data[$i]) ^ $mask[$i % 4];
-		}
+                switch($type)
+                {
+                        case 'ping':
+                                // first byte indicates FIN, Ping frame
+                                // (10001001):
+                                $frameHead[0] = 137;
+                        break;
 
-		for($i = 0; $i < sizeof($frame); $i++)
-		{
-			$encodedData .= chr($frame[$i]);
-		}		
-		
-		return $encodedData;
-	}
+                        case 'pong':
+                                // first byte indicates FIN, Pong frame
+                                // (10001010):
+                                $frameHead[0] = 138;
+                        break;
+
+                        case 'text':
+                                // first byte indicates FIN, Text-Frame
+                                // (10000001):
+                                $frameHead[0] = 129;
+                        break;
+
+                        case 'close':
+                        break;
+                }
+
+                // set mask and payload length (using 1, 3 or 9 bytes) 
+                if($payloadLength > 65535)
+                {
+                        $payloadLengthBin = str_split(sprintf('%064b', $payloadLength), 8);
+                        $frameHead[1] = ($masked === true) ? 255 : 127;
+                        for($i = 0; $i < 8; $i++)
+                        {
+                                $frameHead[$i+2] = bindec($payloadLengthBin[$i]);
+                        }
+                        // most significant bit MUST be 0 (return false if
+                        // to much data)
+                        if($frameHead[2] > 127)
+                        {
+                                return false;
+                        }
+                }
+                elseif($payloadLength > 125)
+                {
+                        $payloadLengthBin = str_split(sprintf('%016b', $payloadLength), 8);
+                        $frameHead[1] = ($masked === true) ? 254 : 126;
+                        $frameHead[2] = bindec($payloadLengthBin[0]);
+                        $frameHead[3] = bindec($payloadLengthBin[1]);
+                }
+                else
+                {
+                        $frameHead[1] = ($masked === true) ? $payloadLength + 128 : $payloadLength;
+                }
+
+                // convert frame-head to string:
+                foreach(array_keys($frameHead) as $i)
+                {
+                        $frameHead[$i] = chr($frameHead[$i]);
+                }
+                if($masked === true)
+                {
+                        // generate a random mask:
+                        $mask = array();
+                        for($i = 0; $i < 4; $i++)
+                        {
+                                $mask[$i] = chr(rand(0, 255));
+                        }
+
+                        $frameHead = array_merge($frameHead, $mask);
+                }
+                $frame = implode('', $frameHead);
+
+                // append payload to frame:
+                $framePayload = array();
+                for($i = 0; $i < $payloadLength; $i++)
+                {
+                        $frame .= ($masked === true) ? $payload[$i] ^
+$mask[$i % 4] : $payload[$i];
+                }
+
+                return $frame;
+        }
 	
         # Frame decoding function.
         #  - See the 'Data Framing' section in the specification
