@@ -9,6 +9,12 @@ namespace WebSocket;
  * @author Nico Kaiser <nico@kaiser.me> (original author)
  * @author Simon Samtleben <web@lemmingzshadow.net> (draft 10 hybi10 support)
  * @author Walter Stanish <stani.sh/walter> (code integration, comments)
+ *
+ * References:
+ *  - HyBi Working Group, Standards Track, Draft 16 (2011-09-27)
+ *    http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-16
+ *  - HyBi Working Group, Standards Track, Draft 10 (2011-07-11)
+ *    http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-10
  */
 class Connection
 {
