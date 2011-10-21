@@ -111,61 +111,24 @@ class WebSocketClient
 	# send data to the socket
 	public function sendData($data)
 	{
-		switch($this->draft)
-		{
-			case 'hybi00':
-				print "sending data ($data)\n";
-				fwrite($this->_Socket, "\x00" . $data . "\xff" ) or die('Error:' . $errno . ':' . $errstr); 
-				$wsData = fread($this->_Socket, 2000);
-				$retData = trim($wsData,"\x00\xff");		
-			break;
-		
-			case 'hybi10':
-			case 'hybi16';
-				fwrite($this->_Socket, $this->_hybi10EncodeData($data)) or die('Error:' . $errno . ':' . $errstr); 
-				$wsData = fread($this->_Socket, 2000);				
-				$retData = $this->_decodeFrame($wsData);
-			break;
-		}
-		
-		return $retData;
+		fwrite($this->_Socket, $this->_hybi10EncodeData($data)) or die('Error:' . $errno . ':' . $errstr); 
+		$wsData = fread($this->_Socket, 2000);				
+		return $this->_decodeFrame($wsData);
 	}
 
 	private function _connect($host, $port, $path)
 	{
-		switch($this->draft)
-		{
-			case 'hybi00':
-				$key1 = $this->_generateRandomString(32);
-				$key2 = $this->_generateRandomString(32);
-				$key3 = $this->_generateRandomString(8, false, true);		
-
-				$header = "GET " . $path . " HTTP/1.1\r\n";
-				$header.= "Host: ".$host.":".$port."\r\n";
-				$header.= "Upgrade: WebSocket\r\n";
-				$header.= "Connection: Upgrade\r\n";
-				$header.= "Origin: null\r\n";
-				$header.= "Sec-WebSocket-Key1: " . $key1 . "\r\n";
-				$header.= "Sec-WebSocket-Key2: " . $key2 . "\r\n";
-				$header.= "\r\n";
-				$header.= $key3;
-			break;
-		
-			case 'hybi10':
-			case 'hybi16':
-				$key = base64_encode($this->_generateRandomString(16, false, true));
+		$key = base64_encode($this->_generateRandomString(16, false, true));
 				
-				$header = "GET " . $path . " HTTP/1.1\r\n";
-				$header.= "Host: ".$host.":".$port."\r\n";
-				$header.= "Upgrade: websocket\r\n";
-				$header.= "Connection: Upgrade\r\n";
-				$header.= "Origin: null\r\n";
-				$header.= "Sec-WebSocket-Key: " . $key . "\r\n";
-				$header.= "Sec-WebSocket-Origin: null\r\n";
-				$header.= "Sec-WebSocket-Version: 8\r\n";
-				$header.= "\r\n";
-			break;
-		}		
+		$header = "GET " . $path . " HTTP/1.1\r\n";
+		$header.= "Host: ".$host.":".$port."\r\n";
+		$header.= "Upgrade: websocket\r\n";
+		$header.= "Connection: Upgrade\r\n";
+		$header.= "Origin: null\r\n";
+		$header.= "Sec-WebSocket-Key: " . $key . "\r\n";
+		$header.= "Sec-WebSocket-Origin: null\r\n";
+		$header.= "Sec-WebSocket-Version: 8\r\n";
+		$header.= "\r\n";
 
 		print "Connecting... ";
 		$this->_Socket = fsockopen($host, $port, $errno, $errstr, 2); 
@@ -188,25 +151,12 @@ class WebSocketClient
                 print "OK.\n";
 		print_r($response);
 
-                switch($this->draft)
-                {
-                        case 'hybi10':
-			case 'hybi16':
-				print "Processing response as hybi10 with key verification.\n";
-				preg_match('#Sec-WebSocket-Accept:\s(.*)$#mU', $response, $matches);
-				$keyAccept = trim($matches[1]);
-				$expectedResponse = base64_encode(pack('H*', sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
-				print "Comparing $keyAccept to $expectedResponse!\n";
-				return ($keyAccept === $expectedResponse) ? true : false;
-				break;
+		preg_match('#Sec-WebSocket-Accept:\s(.*)$#mU', $response, $matches);
+		$keyAccept = trim($matches[1]);
+		$expectedResponse = base64_encode(pack('H*', sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
+		$this->debug("Comparing $keyAccept to $expectedResponse!\n";
+		return ($keyAccept === $expectedResponse) ? true : false;
 
-			default:
-				print "Cowardly refusing to perform key verification.\n";
-				/**
-				 * No key verification for draft hybi00, cause it's already deprecated.
-				 */
-				return true;
-		}	
 	}
 	
 	private function _disconnect()
