@@ -37,13 +37,13 @@ class Server extends Socket
             }
             foreach ($changed_sockets as $socket) {
                 if ($socket == $this->master) {
-                    if (($ressource = socket_accept($this->master)) < 0) {
-                        $this->log('Socket error: ' . socket_strerror(socket_last_error($ressource)));
+                    if (($resource = socket_accept($this->master)) < 0) {
+                        $this->log('Socket error: ' . socket_strerror(socket_last_error($resource)));
                         continue;
                     } else {
-                        $client = new Connection($this, $ressource);
-                        $this->clients[$ressource] = $client;
-                        $this->allsockets[] = $ressource;
+                        $client = new Connection($this, $resource);
+                        $this->clients[$resource] = $client;
+                        $this->allsockets[] = $resource;
                     }
                 } else {
                     $client = $this->clients[$socket];
