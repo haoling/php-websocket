@@ -1,6 +1,6 @@
 <?php
-ini_set('display_errors', 1);
-error_reporting(E_ALL ^ E_WARNING ^ E_STRICT ^ E_NOTICE);
+
+namespace WebSocket;
 
 /**
  * Very basic websocket client.
@@ -9,7 +9,7 @@ error_reporting(E_ALL ^ E_WARNING ^ E_STRICT ^ E_NOTICE);
  * @author Walter Stanish <stani.sh/walter>
  */
 
-class WebSocketClient
+class Client
 {
 	private $_Socket = null;
 	private $_debugging = 0;
@@ -101,17 +101,19 @@ class WebSocketClient
         #  exception in case of failure.
 	public function getData()
 	{
-	 if(!($wsdata = fread($this->_Socket, 2000))) {
-          throw new exception('Socket read failed.');
-	 }
-         return $this->_decodeFrame($wsdata);
+         if(!($wsdata = fread($this->_Socket, 2000))) {
+              throw new \Exception('Socket read failed.');
          }
+
+         return $this->_decodeFrame($wsdata);
 	}
 
 	# send data to the socket
 	public function sendData($data)
 	{
-		fwrite($this->_Socket, $this->_encodeFrame($data)) or die('Error:' . $errno . ':' . $errstr); 
+		if (!fwrite($this->_Socket, $this->_encodeFrame($data))) {
+            throw new \Exception('Socket write failed');
+        }
 		$wsData = fread($this->_Socket, 2000);				
 		return $this->_decodeFrame($wsData);
 	}
@@ -134,7 +136,9 @@ class WebSocketClient
 		$this->_Socket = fsockopen($host, $port, $errno, $errstr, 2); 
 		print "OK.\n";
 		print "Sending data... ";
-		fwrite($this->_Socket, $header) or die('Error: ' . $errno . ':' . $errstr); 
+		if (!fwrite($this->_Socket, $header)) {
+            throw new \Exception('Error: ' . $errno . ':' . $errstr);
+        }
 		print "OK.\n------------sent this-----------------------\n$header\n-----------------------------------\n";
 		print "Lengthening socket read timeout to 10 seconds... ";
 		if(stream_set_timeout($this->_Socket, 10)) {
@@ -154,7 +158,7 @@ class WebSocketClient
 		preg_match('#Sec-WebSocket-Accept:\s(.*)$#mU', $response, $matches);
 		$keyAccept = trim($matches[1]);
 		$expectedResponse = base64_encode(pack('H*', sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
-		$this->debug("Comparing $keyAccept to $expectedResponse!\n";
+		$this->debug("Comparing $keyAccept to $expectedResponse!\n");
 		return ($keyAccept === $expectedResponse) ? true : false;
 
 	}
@@ -269,8 +273,7 @@ class WebSocketClient
                 $framePayload = array();
                 for($i = 0; $i < $payloadLength; $i++)
                 {
-                        $frame .= ($masked === true) ? $payload[$i] ^
-$mask[$i % 4] : $payload[$i];
+                        $frame .= ($masked === true) ? $payload[$i] ^ $mask[$i % 4] : $payload[$i];
                 }
 
                 return $frame;
@@ -428,6 +431,7 @@ $raw_frame
 	  $encoded_payload = substr($raw_frame, $payload_offset);
 
 	  # Finally, we decode the encoded frame payload
+      $payload = '';
 	  for($i = 0; $i < strlen($encoded_payload); $i++) {		
 	   $payload .= $encoded_payload[$i] ^ $mask[$i % 4];
 	  }
