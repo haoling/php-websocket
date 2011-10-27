@@ -413,7 +413,7 @@ $raw_frame
 
 	  # Default (standard payload, 7 bits)
 	  $mask_offset = 2;
-	  $payload_offet = 6;
+	  $payload_offset = 6;
 
 	  # Extended payload (7+16 bits or +2 bytes)
 	  if($payload_length === 126) {
@@ -494,7 +494,7 @@ $raw_frame
 	   $this->debug($this->_hex_dump($message_portions[$final]) .  "\n");
 	   # remember
 	   $this->_partial_message = $message_portions[$final];
-	   $this->debug($this->_hex_dump($this->partial_message));
+	   $this->debug($this->_hex_dump($this->_partial_message));
 	   # unset
 	   unset($message_portions[$final]);
 	  }
