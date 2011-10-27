@@ -42,15 +42,15 @@ class Server extends Socket
                         continue;
                     } else {
                         $client = new Connection($this, $resource);
-                        $this->clients[$resource] = $client;
+                        $this->clients[(int)$resource] = $client;
                         $this->allsockets[] = $resource;
                     }
                 } else {
-                    $client = $this->clients[$socket];
+                    $client = $this->clients[(int)$socket];
                     $bytes = @socket_recv($socket, $data, 4096, 0);
                     if (!$bytes) {
                         $client->onDisconnect();
-                        unset($this->clients[$socket]);
+                        unset($this->clients[(int)$socket]);
                         $index = array_search($socket, $this->allsockets);
                         unset($this->allsockets[$index]);
                         unset($client);
