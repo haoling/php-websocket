@@ -2,6 +2,8 @@
 
 namespace WebSocket;
 
+use WebSocket\Application\ApplicationInterface;
+
 /**
  * Simple WebSockets server
  *
@@ -70,7 +72,7 @@ class Server extends Socket
         }
     }
 
-    public function registerApplication($key, $application)
+    public function registerApplication($key, ApplicationInterface $application)
     {
         $this->applications[$key] = $application;
     }

@@ -2,6 +2,8 @@
 
 namespace WebSocket;
 
+use Exception;
+
 /**
  * WebSocket Connection class
  *
@@ -24,7 +26,7 @@ class Connection
     private $application = null;
     private $draft = '';
 
-    public function __construct($server, $socket) {
+    public function __construct(Server $server, $socket) {
      $this->server = $server;
      $this->socket = $socket;
      $this->log('Connected');

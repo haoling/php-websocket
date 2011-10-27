@@ -7,7 +7,7 @@ namespace WebSocket\Application;
  * 
  * @author Nico Kaiser <nico@kaiser.me>
  */
-abstract class Application
+abstract class Application implements ApplicationInterface
 {
     protected static $instances = array();
     
