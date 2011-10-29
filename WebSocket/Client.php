@@ -11,6 +11,10 @@ namespace WebSocket;
 
 class Client
 {
+    private $host;
+    private $port;
+    private $path;
+    private $connected = false;
 	private $_Socket = null;
 	private $_debugging = 0;
 
@@ -20,7 +24,9 @@ class Client
 	
 	public function __construct($host, $port, $path = '/')
 	{
-		$this->_connect($host, $port, $path);	
+        $this->host = $host;
+        $this->port = $port;
+        $this->path = $path;
 	}
 	
 	public function __destruct()
@@ -101,20 +107,29 @@ class Client
         #  exception in case of failure.
 	public function getData()
 	{
-         if(!($wsdata = fread($this->_Socket, 2000))) {
-              throw new \Exception('Socket read failed.');
-         }
+        if (!$this->connected) {
+            $this->connected = $this->_connect($this->host, $this->port, $this->path);
+        }
 
-         return $this->_decodeFrame($wsdata);
+        if (!($wsdata = fread($this->_Socket, 2000))) {
+            throw new \Exception('Socket read failed.');
+        }
+
+        return $this->_decodeFrame($wsdata);
 	}
 
 	# send data to the socket
 	public function sendData($data)
 	{
+        if (!$this->connected) {
+            $this->connected = $this->_connect($this->host, $this->port, $this->path);
+        }
+        
 		if (!fwrite($this->_Socket, $this->_encodeFrame($data))) {
             throw new \Exception('Socket write failed');
         }
-		$wsData = fread($this->_Socket, 2000);				
+		$wsData = fread($this->_Socket, 2000);
+        
 		return $this->_decodeFrame($wsData);
 	}
 
@@ -159,13 +174,15 @@ class Client
 		$keyAccept = trim($matches[1]);
 		$expectedResponse = base64_encode(pack('H*', sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
 		$this->debug("Comparing $keyAccept to $expectedResponse!\n");
-		return ($keyAccept === $expectedResponse) ? true : false;
 
+		return ($keyAccept === $expectedResponse) ? true : false;
 	}
 	
 	private function _disconnect()
 	{
-		fclose($this->_Socket);
+        if ($this->connected) {
+		    fclose($this->_Socket);
+        }
 	}
 
 	private function _generateRandomString($length = 10, $addSpaces = true, $addNumbers = true)
