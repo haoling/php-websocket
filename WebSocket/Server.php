@@ -10,7 +10,7 @@ use WebSocket\Application\ApplicationInterface;
  * @author Nico Kaiser <nico@kaiser.me>
  */
 class Server extends Socket
-{   
+{
     private $clients = array();
 
     private $applications = array();
@@ -25,42 +25,42 @@ class Server extends Socket
     public function run()
     {
         while (true) {
-             $this->loop();
+            $this->loop();
         }
     }
 
     public function loop()
     {
-            $changed_sockets = $this->allsockets;
-            @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
+        $changed_sockets = $this->allsockets;
+        @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
 
-            foreach ($this->applications as $application) {
-                $application->onTick();
-            }
-            foreach ($changed_sockets as $socket) {
-                if ($socket == $this->master) {
-                    if (($resource = socket_accept($this->master)) < 0) {
-                        $this->log('Socket error: ' . socket_strerror(socket_last_error($resource)));
-                        continue;
-                    } else {
-                        $client = new Connection($this, $resource);
-                        $this->clients[(int)$resource] = $client;
-                        $this->allsockets[] = $resource;
-                    }
+        foreach ($this->applications as $application) {
+            $application->onTick();
+        }
+        foreach ($changed_sockets as $socket) {
+            if ($socket == $this->master) {
+                if (($resource = socket_accept($this->master)) < 0) {
+                    $this->log('Socket error: ' . socket_strerror(socket_last_error($resource)));
+                    continue;
                 } else {
-                    $client = $this->clients[(int)$socket];
-                    $bytes = @socket_recv($socket, $data, 4096, 0);
-                    if (!$bytes) {
-                        $client->onDisconnect();
-                        unset($this->clients[(int)$socket]);
-                        $index = array_search($socket, $this->allsockets);
-                        unset($this->allsockets[$index]);
-                        unset($client);
-                    } else {
-                        $client->onData($data);
-                    }
+                    $client = new Connection($this, $resource);
+                    $this->clients[(int)$resource] = $client;
+                    $this->allsockets[] = $resource;
+                }
+            } else {
+                $client = $this->clients[(int)$socket];
+                $bytes = @socket_recv($socket, $data, 4096, 0);
+                if (!$bytes) {
+                    $client->onDisconnect();
+                    unset($this->clients[(int)$socket]);
+                    $index = array_search($socket, $this->allsockets);
+                    unset($this->allsockets[$index]);
+                    unset($client);
+                } else {
+                    $client->onData($data);
                 }
             }
+        }
     }
 
     public function getApplication($key)
@@ -76,15 +76,15 @@ class Server extends Socket
     {
         $this->applications[$key] = $application;
     }
-    
-	public function removeClient($resource)
-	{
-		$client = $this->clients[$resource];
-		unset($this->clients[$resource]);
-		$index = array_search($resource, $this->allsockets);
-		unset($this->allsockets[$index]);
-		unset($client);
-	}
+
+    public function removeClient($resource)
+    {
+        $client = $this->clients[$resource];
+        unset($this->clients[$resource]);
+        $index = array_search($resource, $this->allsockets);
+        unset($this->allsockets[$index]);
+        unset($client);
+    }
 
     public function log($message, $type = 'info')
     {

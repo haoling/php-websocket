@@ -13,6 +13,7 @@ class EchoApplication extends Application
 
     public function onConnect($client)
     {
+        print_r($client);
         $this->clients[] = $client;
     }
 

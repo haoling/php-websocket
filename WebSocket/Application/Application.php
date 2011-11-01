@@ -2,6 +2,8 @@
 
 namespace WebSocket\Application;
 
+use WebSocket\Connection;
+
 /**
  * WebSocket Server Application
  * 
@@ -28,11 +30,11 @@ abstract class Application implements ApplicationInterface
         return self::$instances[$calledClassName];
     }
 
-    public function onConnect($connection) { }
+    public function onConnect(Connection $connection) { }
 
-    public function onDisconnect($connection) { }
+    public function onDisconnect(Connection $connection) { }
     
     public function onTick() { }
 
-    public function onData($data, $client) { }
+    public function onData($data, Connection $client) { }
 }
