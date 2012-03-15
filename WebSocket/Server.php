@@ -8,6 +8,7 @@ use WebSocket\Application\ApplicationInterface;
  * Simple WebSockets server
  *
  * @author Nico Kaiser <nico@kaiser.me>
+ * @author Aya Mishina <http://fei-yen.jp/maya/> (Can use own Connection class. To use "$application->setOption('ConnectionClass', 'MyClass');")
  */
 class Server extends Socket
 {
@@ -43,7 +44,7 @@ class Server extends Socket
                     $this->log('Socket error: ' . socket_strerror(socket_last_error($resource)));
                     continue;
                 } else {
-                    $client = new Connection($this, $resource);
+                    $client = new Connection\Unhandshaked($this, $resource);
                     $this->clients[(int)$resource] = $client;
                     $this->allsockets[] = $resource;
                 }
@@ -56,6 +57,16 @@ class Server extends Socket
                     $index = array_search($socket, $this->allsockets);
                     unset($this->allsockets[$index]);
                     unset($client);
+                } elseif(! $client->isHandshaked()) {
+                    $client = $client->handshake($data);
+                    if(! $client) {
+                        unset($this->clients[(int)$socket]);
+                        $index = array_search($socket, $this->allsockets);
+                        unset($this->allsockets[$index]);
+                        unset($client);
+                    } else {
+                        $this->clients[$socket] = $client;
+                    }
                 } else {
                     $client->onData($data);
                 }
