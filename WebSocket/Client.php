@@ -7,9 +7,10 @@ namespace WebSocket;
  *
  * @author Simon Samtleben <web@lemmingzshadow.net>
  * @author Walter Stanish <stani.sh/walter>
+ * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
  */
 
-class Client
+class Client extends WebSocket
 {
     private $host;
     private $port;

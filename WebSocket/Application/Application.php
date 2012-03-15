@@ -8,8 +8,9 @@ use WebSocket\Connection;
  * WebSocket Server Application
  * 
  * @author Nico Kaiser <nico@kaiser.me>
+ * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
  */
-abstract class Application implements ApplicationInterface
+abstract class Application extends \WebSocket\WebSocket
 {
     protected static $instances = array();
     

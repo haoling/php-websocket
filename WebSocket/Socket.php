@@ -7,13 +7,14 @@ namespace WebSocket;
      *
      * @author Moritz Wutz <moritzwutz@gmail.com>
      * @author Nico Kaiser <nico@kaiser.me>
+ * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
      * @version 0.2
      */
 
 /**
  * This is the main socket class
  */
-class Socket
+class Socket extends WebSocket
 {
     /**
      * @var Socket Holds the master socket
