@@ -10,7 +10,7 @@ use WebSocket\Connection;
  * @author Nico Kaiser <nico@kaiser.me>
  * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
  */
-abstract class Application extends \WebSocket\WebSocket
+abstract class Application extends \WebSocket\WebSocket implements ApplicationInterface
 {
     protected static $instances = array();
     
