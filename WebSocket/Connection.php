@@ -48,7 +48,7 @@ class Connection extends \WebSocket\WebSocket
     public function onData($data)
     {
         $this->log("THIS IS ONDATA");
-            $this->handle($data);
+        $this->handle($data);
     }
 
     # No documentation - wuh?
@@ -137,12 +137,20 @@ class Connection extends \WebSocket\WebSocket
 
         # First unframe the message chunks
         #  - if the first byte is nonzero, use parseFrame()
-        if($data[0] != chr(0)) {
-            $chunks = $this->parseFrame($data);
+        try {
+            if($data[0] != chr(0)) {
+                $chunks = $this->parseFrame($data);
+            }
+                #  - otherwise, use the older parseClassic()
+            else {
+                $chunks = $this->parseClassic($data);
+            }
         }
-            #  - otherwise, use the older parseClassic()
-        else {
-            $chunks = $this->parseClassic($data);
+        catch(Exception $e) {
+            $this->log('Data incorrectly framed. Dropping connection');
+            $this->log($e->getMessage());
+            $this->onDisconnect();
+            return false;
         }
 
         # Debugging
@@ -151,7 +159,7 @@ class Connection extends \WebSocket\WebSocket
         # Abort on failure
         if($chunks === false) {
             $this->log('Data incorrectly framed. Dropping connection');
-            socket_close($this->socket);
+            $this->onDisconnect();
             return false;
         }
 
