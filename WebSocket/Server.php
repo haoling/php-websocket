@@ -76,6 +76,8 @@ class Server extends Socket
 
     public function getApplication($key)
     {
+        settype($key, 'string');
+        if(! isset($key[0])) return false;
         if (array_key_exists($key, $this->applications)) {
             return $this->applications[$key];
         } else {
