@@ -12,9 +12,9 @@ use WebSocket\Application\ApplicationInterface;
  */
 class Server extends Socket
 {
-    private $clients = array();
+    protected $clients = array();
 
-    private $applications = array();
+    protected $applications = array();
 
     public function __construct($host = 'localhost', $port = 8000, $max = 100)
     {
@@ -35,35 +35,24 @@ class Server extends Socket
         $changed_sockets = $this->allsockets;
         @socket_select($changed_sockets, $write = NULL, $exceptions = NULL, 0);
 
-        foreach ($this->applications as $application) {
-            $application->onTick();
-        }
+        $this->onTick();
         foreach ($changed_sockets as $socket) {
             if ($socket == $this->master) {
                 if (($resource = socket_accept($this->master)) < 0) {
                     $this->log('Socket error: ' . socket_strerror(socket_last_error($resource)));
                     continue;
                 } else {
-                    $client = new Connection\Unhandshaked($this, $resource);
-                    $this->clients[(int)$resource] = $client;
-                    $this->allsockets[] = $resource;
+                    $this->acceptClient($resource);
                 }
             } else {
                 $client = $this->clients[(int)$socket];
                 $bytes = @socket_recv($socket, $data, 4096, 0);
                 if (!$bytes) {
                     $client->onDisconnect();
-                    unset($this->clients[(int)$socket]);
-                    $index = array_search($socket, $this->allsockets);
-                    unset($this->allsockets[$index]);
-                    unset($client);
                 } elseif(! $client->isHandshaked()) {
                     $client = $client->handshake($data);
                     if(! $client) {
-                        unset($this->clients[(int)$socket]);
-                        $index = array_search($socket, $this->allsockets);
-                        unset($this->allsockets[$index]);
-                        unset($client);
+                        $this->removeClient($socket);
                     } else {
                         $this->clients[$socket] = $client;
                     }
@@ -72,6 +61,13 @@ class Server extends Socket
                 }
             }
         }
+    }
+
+    protected function acceptClient($socket) {
+        $this->log('acceptClient: ' . $socket);
+        $client = new Connection\Unhandshaked($this, $socket);
+        $this->clients[(int)$socket] = $client;
+        $this->allsockets[] = $socket;
     }
 
     public function getApplication($key)
@@ -92,8 +88,10 @@ class Server extends Socket
 
     public function removeClient($resource)
     {
-        $client = $this->clients[$resource];
-        unset($this->clients[$resource]);
+        $this->log('removeClient: ' . $resource);
+        if(! isset($this->clients[(int)$resource]) || ! in_array($resource, $this->allsockets)) return;
+        $client = $this->clients[(int)$resource];
+        unset($this->clients[(int)$resource]);
         $index = array_search($resource, $this->allsockets);
         unset($this->allsockets[$index]);
         unset($client);
@@ -102,6 +100,12 @@ class Server extends Socket
     public function log($message, $type = 'info')
     {
         echo date('Y-m-d H:i:s') . ' [' . ($type ? $type : 'error') . '] ' . $message . PHP_EOL;
+    }
+
+    public function onTick() {
+        foreach ($this->applications as $application) {
+            $application->onTick();
+        }
     }
 
 }

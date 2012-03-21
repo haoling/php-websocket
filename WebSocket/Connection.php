@@ -275,7 +275,7 @@ class Connection extends \WebSocket\WebSocket
         $policy .= '<allow-access-from domain="*" to-ports="*"/>' . "\n";
         $policy .= '</cross-domain-policy>' . "\n";
         socket_write($this->socket, $policy, strlen($policy));
-        socket_close($this->socket);
+        $this->onDisconnect();
     }
 
     # pretty iffy. the good stuff (draft specific code) is
@@ -313,6 +313,8 @@ class Connection extends \WebSocket\WebSocket
     # disconnection handler
     public function onDisconnect()
     {
+        if(is_null($this->socket)) return;
+
         # debugging
         $this->log('Disconnected', 'info');
 
@@ -322,8 +324,14 @@ class Connection extends \WebSocket\WebSocket
             $this->application->onDisconnect($this);
         }
 
+        # remove client from server
+        if ($this->server) {
+            $this->server->removeClient($this->socket);
+        }
+
         # close the socket
         socket_close($this->socket);
+        $this->socket = null;
     }
 
     # WebSocket draft 76 handshake digest
@@ -345,7 +353,7 @@ class Connection extends \WebSocket\WebSocket
     # basic logging function
     public function log($message, $type = 'info')
     {
-        socket_getpeername($this->socket, $addr, $port);
+        @socket_getpeername($this->socket, $addr, $port);
         $this->server->log('[client ' . $addr . ':' . $port . '] ' . $message, $type);
     }
 }
