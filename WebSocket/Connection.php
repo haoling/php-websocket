@@ -252,10 +252,14 @@ class Connection extends \WebSocket\WebSocket
         else
         {
             $frame[1] = 127 + ($this->getOption('send_mask', true) ? 128 : 0);
-            $frame[2] = ($dataLength >> 24) & 0xFF;
-            $frame[3] = ($dataLength >> 16) & 0xFF;
-            $frame[4] = ($dataLength >> 8) & 0xFF;
-            $frame[5] = $dataLength & 0xFF;
+            $frame[2] = 0;
+            $frame[3] = 0;
+            $frame[4] = 0;
+            $frame[5] = 0;
+            $frame[6] = ($dataLength >> 24) & 0xFF;
+            $frame[7] = ($dataLength >> 16) & 0xFF;
+            $frame[8] = ($dataLength >> 8) & 0xFF;
+            $frame[9] = $dataLength & 0xFF;
         }
         if($this->getOption('send_mask', true))
         {
