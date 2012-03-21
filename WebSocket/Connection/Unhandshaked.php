@@ -69,6 +69,7 @@ class Unhandshaked extends \WebSocket\Connection
          * draft-ietf-hybi-thewebsocketprotocol-10
          */
         if(isset($headers['Sec-WebSocket-Version']) && $headers['Sec-WebSocket-Version'] >= 6) {
+            $this->log('draft 10', 'info');
             $conobj->draft = 10;
             $secKey = $headers['Sec-WebSocket-Key'];
             $secAccept = base64_encode(pack('H*', sha1($secKey . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
@@ -102,6 +103,7 @@ class Unhandshaked extends \WebSocket\Connection
         else if (array_key_exists('Sec-WebSocket-Key1', $headers)) {
             // draft-76 : Requires a 'Security Digest' header to be present.
             $conobj->draft = 76;
+            $this->log('draft 76', 'info');
             $def_header = array(
                 'Sec-WebSocket-Origin' => $origin,
                 'Sec-WebSocket-Location' => "ws://{$host}{$path}"
@@ -111,6 +113,7 @@ class Unhandshaked extends \WebSocket\Connection
         else {
             // draft-75 : No 'Security Digest' header.
             $conobj->draft = 75;
+            $this->log('draft 75', 'info');
             $def_header = array(
                 'WebSocket-Origin' => $origin,
                 'WebSocket-Location' => "ws://{$host}{$path}"  

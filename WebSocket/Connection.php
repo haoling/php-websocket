@@ -241,18 +241,36 @@ class Connection extends \WebSocket\WebSocket
 
         if($dataLength <= 125)
         {
-            $frame[1] = $dataLength + 128;
+            $frame[1] = $dataLength + ($this->getOption('send_mask', true) ? 128 : 0);
+        }
+        elseif($dataLength <= 65535)
+        {
+            $frame[1] = 126 + ($this->getOption('send_mask', true) ? 128 : 0);
+            $frame[2] = ($dataLength >> 8) & 0xFF;
+            $frame[3] = $dataLength & 0xFF;
         }
         else
         {
-            $frame[1] = 254;
-            $frame[2] = $dataLength >> 8;
-            $frame[3] = $dataLength & 0xFF;
+            $frame[1] = 127 + ($this->getOption('send_mask', true) ? 128 : 0);
+            $frame[2] = ($dataLength >> 24) & 0xFF;
+            $frame[3] = ($dataLength >> 16) & 0xFF;
+            $frame[4] = ($dataLength >> 8) & 0xFF;
+            $frame[5] = $dataLength & 0xFF;
         }
-        $frame = array_merge($frame, $mask);
-        for($i = 0; $i < strlen($data); $i++)
+        if($this->getOption('send_mask', true))
         {
-            $frame[] = ord($data[$i]) ^ $mask[$i % 4];
+            $frame = array_merge($frame, $mask);
+            for($i = 0; $i < strlen($data); $i++)
+            {
+                $frame[] = ord($data[$i]) ^ $mask[$i % 4];
+            }
+        }
+        else
+        {
+            for($i = 0; $i < strlen($data); $i++)
+            {
+                $frame[] = ord($data[$i]);
+            }
         }
 
         for($i = 0; $i < sizeof($frame); $i++)
