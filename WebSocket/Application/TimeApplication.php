@@ -7,7 +7,7 @@ namespace WebSocket\Application;
  * 
  * @author Nico Kaiser <nico@kaiser.me>
  */
-class TimeApplication extends Application
+class TimeApplication extends \WebSocketApplication
 {
     private $clients = array();
     

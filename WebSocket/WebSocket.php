@@ -1,7 +1,5 @@
 <?php
 
-namespace WebSocket;
-
 /**
  * WebSocket abstract class
  *

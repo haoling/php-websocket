@@ -1,16 +1,12 @@
 <?php
 
-namespace WebSocket\Application;
-
-use WebSocket\Connection;
-
 /**
  * WebSocket Server Application
  * 
  * @author Nico Kaiser <nico@kaiser.me>
  * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
  */
-abstract class Application extends \WebSocket\WebSocket implements ApplicationInterface
+abstract class WebSocketApplication extends WebSocket implements WebSocketApplicationInterface
 {
     protected static $instances = array();
     
@@ -31,11 +27,11 @@ abstract class Application extends \WebSocket\WebSocket implements ApplicationIn
         return self::$instances[$calledClassName];
     }
 
-    public function onConnect(Connection $connection) { }
+    public function onConnect(WebSocketConnection $connection) { }
 
-    public function onDisconnect(Connection $connection) { }
+    public function onDisconnect(WebSocketConnection $connection) { }
     
     public function onTick() { }
 
-    public function onData($data, Connection $client) { }
+    public function onData($data, WebSocketConnection $client) { }
 }

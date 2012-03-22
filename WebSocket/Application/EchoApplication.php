@@ -7,7 +7,7 @@ namespace WebSocket\Application;
  * 
  * @author Nico Kaiser <nico@kaiser.me>
  */
-class EchoApplication extends Application
+class EchoApplication extends \WebSocketApplication
 {
     private $clients = array();
 

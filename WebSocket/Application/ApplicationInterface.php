@@ -3,20 +3,16 @@
  *
  */
 
-namespace WebSocket\Application;
-
-use \WebSocket\Connection;
-
 /**
  * @author Richard Fullmer <richard.fullmer@opensoftdev.com>
  */ 
-interface ApplicationInterface
+interface WebSocketApplicationInterface
 {
-    public function onConnect(Connection $connection);
+    public function onConnect(WebSocketConnection $connection);
 
-    public function onDisconnect(Connection $connection);
+    public function onDisconnect(WebSocketConnection $connection);
 
     public function onTick();
 
-    public function onData($data, Connection $client);
+    public function onData($data, WebSocketConnection $client);
 }

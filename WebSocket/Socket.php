@@ -1,7 +1,5 @@
 <?php
 
-namespace WebSocket;
-
     /**
      * Socket class
      *
@@ -14,7 +12,7 @@ namespace WebSocket;
 /**
  * This is the main socket class
  */
-class Socket extends WebSocket
+class WebSocketSocket extends WebSocket
 {
     /**
      * @var Socket Holds the master socket

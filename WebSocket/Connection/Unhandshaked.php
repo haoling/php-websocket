@@ -1,9 +1,5 @@
 <?php
 
-namespace WebSocket\Connection;
-
-use Exception;
-
 /**
  * WebSocket Connection class
  *
@@ -19,7 +15,7 @@ use Exception;
  *  - HyBi Working Group, Standards Track, Draft 10 (2011-07-11)
  *    http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-10
  */
-class Unhandshaked extends \WebSocket\Connection
+class WebSocketUnhandshakedConnection extends WebSocketConnection
 {
     # post-connection server handshake function
     public function handshake($data) {
@@ -51,7 +47,7 @@ class Unhandshaked extends \WebSocket\Connection
         }
         
         // switch class
-        $class = $this->application->getOption('ConnectionClass', '\\WebSocket\\Connection');
+        $class = $this->application->getOption('ConnectionClass', 'WebSocketConnection');
         $conobj = new $class($this->server, $this->socket);
         $conobj->application = $this->application;
 

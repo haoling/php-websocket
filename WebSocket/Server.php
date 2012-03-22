@@ -1,16 +1,12 @@
 <?php
 
-namespace WebSocket;
-
-use WebSocket\Application\ApplicationInterface;
-
 /**
  * Simple WebSockets server
  *
  * @author Nico Kaiser <nico@kaiser.me>
  * @author Aya Mishina <http://fei-yen.jp/maya/> (Can use own Connection class. To use "$application->setOption('ConnectionClass', 'MyClass');")
  */
-class Server extends Socket
+class WebSocketServer extends WebSocketSocket
 {
     protected $clients = array();
 
@@ -65,7 +61,7 @@ class Server extends Socket
 
     protected function acceptClient($socket) {
         $this->log('acceptClient: ' . $socket);
-        $client = new Connection\Unhandshaked($this, $socket);
+        $client = new WebSocketUnhandshakedConnection($this, $socket);
         $this->clients[(int)$socket] = $client;
         $this->allsockets[] = $socket;
     }
@@ -81,7 +77,7 @@ class Server extends Socket
         }
     }
 
-    public function registerApplication($key, ApplicationInterface $application)
+    public function registerApplication($key, WebSocketApplicationInterface $application)
     {
         $this->applications[$key] = $application;
     }

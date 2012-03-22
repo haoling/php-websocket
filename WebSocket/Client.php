@@ -1,7 +1,5 @@
 <?php
 
-namespace WebSocket;
-
 /**
  * Very basic websocket client.
  *
@@ -10,7 +8,7 @@ namespace WebSocket;
  * @author Aya Mishina <http://fei-yen.jp/maya/> (Define abstract class)
  */
 
-class Client extends WebSocket
+class WebSocketClient extends WebSocket
 {
     private $host;
     private $port;
@@ -116,7 +114,7 @@ class Client extends WebSocket
         }
 
         if (!($wsdata = fread($this->_Socket, 2000))) {
-            throw new \Exception('Socket read failed.');
+            throw new Exception('Socket read failed.');
         }
 
         return $this->_decodeFrame($wsdata);
@@ -130,7 +128,7 @@ class Client extends WebSocket
         }
 
         if (!fwrite($this->_Socket, $this->_encodeFrame($data))) {
-            throw new \Exception('Socket write failed');
+            throw new Exception('Socket write failed');
         }
         $wsData = fread($this->_Socket, 2000);
 

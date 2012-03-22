@@ -1,9 +1,5 @@
 <?php
 
-namespace WebSocket;
-
-use Exception;
-
 /**
  * WebSocket Connection class
  *
@@ -19,7 +15,7 @@ use Exception;
  *  - HyBi Working Group, Standards Track, Draft 10 (2011-07-11)
  *    http://tools.ietf.org/html/draft-ietf-hybi-thewebsocketprotocol-10
  */
-class Connection extends \WebSocket\WebSocket
+class WebSocketConnection extends WebSocket
 {
     protected $server;
     protected $socket;
@@ -27,7 +23,7 @@ class Connection extends \WebSocket\WebSocket
     protected $application = null;
     protected $draft = '';
 
-    public function __construct(Server $server, $socket)
+    public function __construct(WebSocketServer $server, $socket)
     {
         $this->server = $server;
         $this->socket = $socket;
