@@ -1,15 +1,11 @@
 <?php
 
-namespace WebSocket;
-
-use WebSocket\Application\ApplicationInterface;
-
 /**
  * WebSockets server use fork, 1 client with 1 process
  *
  * @author Aya Mishina <http://fei-yen.jp/maya/> (Initial Release)
  */
-class ForkServer extends Server
+class WebSocketForkServer extends WebSocketServer
 {
     protected $is_child = false;
     protected $ipc_socket = array();
@@ -62,7 +58,7 @@ class ForkServer extends Server
     
     protected function acceptClient($socket) {
         $this->log('acceptClient: ' . $socket);
-        $client = new Connection\Unhandshaked($this, $socket);
+        $client = new WebSocketUnhandshakedConnection($this, $socket);
         $this->clients[(int)$socket] = $client;
 
         // create sockets for IPC
