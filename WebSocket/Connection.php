@@ -61,41 +61,48 @@ class WebSocketConnection extends WebSocket
     #
     # Comments below are an attempt to make sense of this
     # situation...
-    protected static function parseFrame($data)
+    protected static function parseFrame(&$data_o)
     {
         # unpack data
-        $data = array_values(unpack("C*", $data));
-        # assign the first byte to $i
-        $i = $data[0];
-        # extract the FIN bit (last frame in message indicator)
-        $fin = $i & 0x80;
-        # extract opcodes
-        $opcode = $i&0x0F;
-        # whinge if single-frame message limitation is exceeded
-        if(!$fin) throw new Exception("unsupported fin");
-        # abort on unknown opcodes (required by the standard)
-        if($opcode != 0x1) throw new Exception("unsupported opcode");
-        # assign the second byte to $i
-        $i = $data[1];
-        # the first bit of the byte is the masking indicator bit
-        $masked = $i&0x80;
-        # the subsequent 7 bits of the byte are the payload length
-        $len = $i&0x7F;
-        # whinge if masked indicator is unset (server->client
-        # frames may have this unset, client->server frames must
-        # have this set, as of draft-15, 2011-09-17)
-        if(!$masked) throw new Exception("unsupported should be masked");
-        # whinge if payload length exceeds 126. this is a bug,
-        # as a value of 127 should enable 64-bit lengths
-        if($len>=126) throw new Exception("unsupported len");
-        # get 32-bit mask value from the four subsequent bytes
-        $mask = array_slice($data, 2, 4);
-        $str = "";
-        # apply the mask to the message frame
-        for($i=0;$i<$len;$i++)
-            $str .= chr($data[6+$i] ^ $mask[$i%4]);
-        # return the unmasked frame value
-        return array($str);
+        $data = array_values(unpack("C*", $data_o));
+
+        $ret = array();
+        while(count($data))
+        {
+            # assign the first byte to $i
+            $i = $data[0];
+            # extract the FIN bit (last frame in message indicator)
+            $fin = $i & 0x80;
+            # extract opcodes
+            $opcode = $i&0x0F;
+            # whinge if single-frame message limitation is exceeded
+            if(!$fin) throw new Exception("unsupported fin");
+            # abort on unknown opcodes (required by the standard)
+            if($opcode != 0x1) throw new Exception("unsupported opcode: ".sprintf('0x%X', $opcode));
+            # assign the second byte to $i
+            $i = $data[1];
+            # the first bit of the byte is the masking indicator bit
+            $masked = $i&0x80;
+            # the subsequent 7 bits of the byte are the payload length
+            $len = $i&0x7F;
+            # whinge if masked indicator is unset (server->client
+            # frames may have this unset, client->server frames must
+            # have this set, as of draft-15, 2011-09-17)
+            if(!$masked) throw new Exception("unsupported should be masked");
+            # whinge if payload length exceeds 126. this is a bug,
+            # as a value of 127 should enable 64-bit lengths
+            if($len>=126) throw new Exception("unsupported len");
+            # get 32-bit mask value from the four subsequent bytes
+            $mask = array_slice($data, 2, 4);
+            $str = "";
+            # apply the mask to the message frame
+            for($i=0;$i<$len;$i++)
+                $str .= chr($data[6+$i] ^ $mask[$i%4]);
+            # return the unmasked frame value
+            $ret[] = $str;
+            $data = array_slice($data, 6+$i);
+        }
+        return $ret;
     }
 
     # antiquated frame parsing function, now deprecated
@@ -137,7 +144,7 @@ class WebSocketConnection extends WebSocket
             if($data[0] != chr(0)) {
                 $chunks = $this->parseFrame($data);
             }
-                #  - otherwise, use the older parseClassic()
+            #  - otherwise, use the older parseClassic()
             else {
                 $chunks = $this->parseClassic($data);
             }
@@ -260,22 +267,24 @@ class WebSocketConnection extends WebSocket
         if($this->getOption('send_mask', true))
         {
             $frame = array_merge($frame, $mask);
+            for($i = 0; $i < sizeof($frame); $i++)
+            {
+                $encodedData .= chr($frame[$i]);
+            }
+            
+            
             for($i = 0; $i < strlen($data); $i++)
             {
-                $frame[] = ord($data[$i]) ^ $mask[$i % 4];
+                $encodedData .= chr(ord($data[$i]) ^ $mask[$i % 4]);
             }
         }
         else
         {
-            for($i = 0; $i < strlen($data); $i++)
+            for($i = 0; $i < sizeof($frame); $i++)
             {
-                $frame[] = ord($data[$i]);
+                $encodedData .= chr($frame[$i]);
             }
-        }
-
-        for($i = 0; $i < sizeof($frame); $i++)
-        {
-            $encodedData .= chr($frame[$i]);
+            $encodedData .= $data;
         }
 
         return $encodedData;
@@ -319,11 +328,13 @@ class WebSocketConnection extends WebSocket
 
         # draft 10
         if($this->draft == 10) {
+        	d();
             $encodedData = $this->hybi10Encode($data);
             if(!@socket_write($this->socket, $encodedData, strlen($encodedData))) {
                 @socket_close($this->socket);
                 $this->socket = false;
             }
+        	d();
         }
 
     }
