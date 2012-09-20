@@ -22,6 +22,8 @@ class WebSocketConnection extends WebSocket
     protected $handshaked = false;
     protected $application = null;
     protected $draft = '';
+    protected $buffer = '';
+    protected $continued = null;
 
     public function __construct(WebSocketServer $server, $socket)
     {
@@ -61,15 +63,15 @@ class WebSocketConnection extends WebSocket
     #
     # Comments below are an attempt to make sense of this
     # situation...
-    protected static function parseFrame(&$data_o)
+    protected function parseFrame($data)
     {
         # unpack data
-        $data = array_values(unpack("C*", $data_o));
+        $data = array_values(unpack("C*", $data));
 
-        $ret = array();
-        while(count($data))
+        if(is_null($this->continued))
         {
             # assign the first byte to $i
+            if(! isset($data[0])) return 0;
             $i = $data[0];
             # extract the FIN bit (last frame in message indicator)
             $fin = $i & 0x80;
@@ -78,9 +80,14 @@ class WebSocketConnection extends WebSocket
             # whinge if single-frame message limitation is exceeded
             if(!$fin) throw new Exception("unsupported fin");
             # abort on unknown opcodes (required by the standard)
-            if($opcode != 0x1) throw new Exception("unsupported opcode: ".sprintf('0x%X', $opcode));
+
+            $method = 'parsePayload'.$opcode;
+            if(! method_exists($this, $method)) throw new Exception("unsupported opcode: ".sprintf('0x%X', $opcode));
+
             # assign the second byte to $i
+            if(! isset($data[1])) return 0;
             $i = $data[1];
+            $pos = 2;
             # the first bit of the byte is the masking indicator bit
             $masked = $i&0x80;
             # the subsequent 7 bits of the byte are the payload length
@@ -91,18 +98,73 @@ class WebSocketConnection extends WebSocket
             if(!$masked) throw new Exception("unsupported should be masked");
             # whinge if payload length exceeds 126. this is a bug,
             # as a value of 127 should enable 64-bit lengths
-            if($len>=126) throw new Exception("unsupported len");
+            //if($len>=126) throw new Exception("unsupported len");
+            if($len == 126)
+            {
+                if(! isset($data[$pos+1])) return 0;
+                $len = (($data[$pos] & 0xFF) << 8) | ($data[$pos+1] & 0xFF);
+                $pos += 2;
+            }
+            else if($len == 127)
+            {
+                if(! isset($data[$pos+7])) return 0;
+                $hi32 = (($data[$pos+0] & 0xFF) << 24)
+                      | (($data[$pos+1] & 0xFF) << 16)
+                      | (($data[$pos+2] & 0xFF) << 8)
+                      | (($data[$pos+3] & 0xFF));
+                $lo32 = (($data[$pos+4] & 0xFF) << 24)
+                      | (($data[$pos+5] & 0xFF) << 16)
+                      | (($data[$pos+6] & 0xFF) << 8)
+                      | (($data[$pos+7] & 0xFF));
+                if($hi32 != 0) throw new Exception("unsupported len");
+                $pos += 8;
+                $len = $lo32;
+            }
             # get 32-bit mask value from the four subsequent bytes
-            $mask = array_slice($data, 2, 4);
-            $str = "";
-            # apply the mask to the message frame
-            for($i=0;$i<$len;$i++)
-                $str .= chr($data[6+$i] ^ $mask[$i%4]);
-            # return the unmasked frame value
-            $ret[] = $str;
-            $data = array_slice($data, 6+$i);
+            if(! isset($data[$pos+3])) return 0;
+            $mask = array_slice($data, $pos, 4);
+            $pos += 4;
+            $payload = "";
         }
-        return $ret;
+        else
+        {
+            # continuing data receive
+            extract($this->continued);
+            $this->continued = null;
+            $pos = 0;
+            $this->log(sprintf("Continue reading payload %d/%d", strlen($payload), $len));
+
+            $method = 'parsePayload'.$opcode;
+            if(! method_exists($this, $method)) throw new Exception("unsupported opcode: ".sprintf('0x%X', $opcode));
+        }
+        # apply the mask to the message frame
+        for($i = strlen($payload); $i < $len; $i++)
+        {
+            if(! isset($data[$pos+$i]))
+            {
+                // not enough data
+                $this->continued = compact('fin', 'opcode', 'masked', 'len', 'mask', 'payload');
+                return false;
+            }
+            $payload .= chr($data[$pos+$i] ^ $mask[$i%4]);
+        }
+
+        $this->$method($payload);
+
+        return $pos+$i;
+    }
+    protected function parsePayload1($data)
+    {
+        // Check payload is valid UTF-8 string
+        if(! mb_check_encoding($data, 'UTF-8'))
+        {
+            throw new Exception("payload was not utf-8 string");
+        }
+        return $this->parsePayload2($data);
+    }
+    protected function parsePayload2($data)
+    {
+        $this->application->onData($data, $this);
     }
 
     # antiquated frame parsing function, now deprecated
@@ -136,39 +198,54 @@ class WebSocketConnection extends WebSocket
     {
 
         # Debugging
-        $this->log("Data in is ".join(',', unpack("C*", $data)));
+        //$this->log("Data in is ".join(',', unpack("C*", $data)));
+        $data = $this->buffer.$data;
 
         # First unframe the message chunks
         #  - if the first byte is nonzero, use parseFrame()
-        try {
-            if($data[0] != chr(0)) {
-                $chunks = $this->parseFrame($data);
+        if($data[0] != chr(0) || ! is_null($this->continued)) {
+            try {
+                do
+                {
+                    $readlen = $this->parseFrame($data);
+                    $data = substr($data, $readlen);
+                } while($readlen > 0);
+                $this->buffer = $data;
             }
-            #  - otherwise, use the older parseClassic()
-            else {
+            catch(Exception $e) {
+                $this->log('Data incorrectly framed. Dropping connection');
+                $this->log($e->getMessage());
+                $this->onDisconnect();
+                return false;
+            }
+        }
+        #  - otherwise, use the older parseClassic()
+        else
+        {
+            try {
                 $chunks = $this->parseClassic($data);
             }
-        }
-        catch(Exception $e) {
-            $this->log('Data incorrectly framed. Dropping connection');
-            $this->log($e->getMessage());
-            $this->onDisconnect();
-            return false;
-        }
+            catch(Exception $e) {
+                $this->log('Data incorrectly framed. Dropping connection');
+                $this->log($e->getMessage());
+                $this->onDisconnect();
+                return false;
+            }
 
-        # Debugging
-        $this->log(print_r($chunks,1));
+            # Debugging
+            $this->log(print_r($chunks,1));
 
-        # Abort on failure
-        if($chunks === false) {
-            $this->log('Data incorrectly framed. Dropping connection');
-            $this->onDisconnect();
-            return false;
-        }
+            # Abort on failure
+            if($chunks === false) {
+                $this->log('Data incorrectly framed. Dropping connection');
+                $this->onDisconnect();
+                return false;
+            }
 
-        # Call message handler function once per message chunk
-        foreach($chunks as $chunk) {
-            $this->application->onData($chunk, $this);
+            # Call message handler function once per message chunk
+            foreach($chunks as $chunk) {
+                $this->application->onData($chunk, $this);
+            }
         }
 
         return true;
@@ -232,13 +309,17 @@ class WebSocketConnection extends WebSocket
 
     # encoder function 
     #  Simon Samtleben <web@lemmingzshadow.net>
-    protected function hybi10Encode($data)
+    protected function hybi10Encode($data, $bin = false)
     {
         $frame = Array();
         $mask = array(rand(0, 255), rand(0, 255), rand(0, 255),
                       rand(0, 255));
         $encodedData = '';
-        $frame[0] = 0x81;
+        $frame[0] = 0x80 | ($bin ? 0x02 : 0x01);
+        if(! $bin && ! mb_check_encoding($data, 'UTF-8'))
+        {
+            throw new Exception("payload was not utf-8 string");
+        }
         $dataLength = strlen($data);
 
 
@@ -307,7 +388,7 @@ class WebSocketConnection extends WebSocket
 
     # pretty iffy. the good stuff (draft specific code) is
     # from Simon Samtleben <web@lemmingzshadow.net>
-    public function send($data)
+    public function send($data, $bin = false)
     {
 
         /*
@@ -328,13 +409,11 @@ class WebSocketConnection extends WebSocket
 
         # draft 10
         if($this->draft == 10) {
-        	d();
-            $encodedData = $this->hybi10Encode($data);
+            $encodedData = $this->hybi10Encode($data, $bin);
             if(!@socket_write($this->socket, $encodedData, strlen($encodedData))) {
                 @socket_close($this->socket);
                 $this->socket = false;
             }
-        	d();
         }
 
     }
